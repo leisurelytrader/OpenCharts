@@ -10,7 +10,7 @@ from collections import defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -128,11 +128,41 @@ class SubscribeRequest(BaseModel):
     quote_type: str = "tick"
 
 
+TIMEFRAME_SECONDS = {
+    "1m": 60,
+    "5m": 5 * 60,
+    "15m": 15 * 60,
+    "30m": 30 * 60,
+    "1h": 60 * 60,
+    "4h": 4 * 60 * 60,
+    "1d": 24 * 60 * 60,
+    "1w": 7 * 24 * 60 * 60,
+}
+
+
 class OrderRequest(BaseModel):
     symbol: str
     side: str
     quantity: int = Field(gt=0, le=100)
     price: float | None = None
+
+
+@app.post("/api/auth/login")
+def api_login() -> dict[str, Any]:
+    """Authenticate the gateway with SinoPac API credentials stored server-side."""
+    try:
+        api = ensure_shioaji()
+        accounts = []
+        for account in api.list_accounts():
+            accounts.append({
+                "accountType": str(getattr(account, "account_type", "")),
+                "brokerId": str(getattr(account, "broker_id", "")),
+                "accountId": str(getattr(account, "account_id", "")),
+                "signed": bool(getattr(account, "signed", False)),
+            })
+        return {"authenticated": True, "simulation": SIMULATION, "accounts": accounts}
+    except Exception as exc:
+        raise HTTPException(503, f"SinoPac API login failed: {exc}") from exc
 
 
 @app.on_event("startup")
@@ -207,13 +237,16 @@ def ticks(symbol: str, limit: int = Query(500, ge=1, le=10000)) -> list[dict[str
 
 @app.get("/api/market/candles")
 def candles(symbol: str, timeframe: str = "1m", limit: int = Query(500, ge=1, le=5000)) -> list[dict[str, Any]]:
+    bucket_seconds = TIMEFRAME_SECONDS.get(timeframe)
+    if bucket_seconds is None:
+        raise HTTPException(400, f"Unsupported timeframe: {timeframe}")
     with _db_lock, closing(db()) as conn:
         rows = conn.execute("SELECT ts, close, volume FROM ticks WHERE symbol=? ORDER BY id DESC LIMIT ?", (symbol, limit * 20)).fetchall()
     buckets: dict[int, dict[str, Any]] = {}
     for row in reversed(rows):
         try: ts = int(datetime.fromisoformat(row[0].replace("Z", "+00:00")).timestamp())
         except Exception: continue
-        bucket = ts - (ts % 60)
+        bucket = ts - (ts % bucket_seconds)
         price = float(row[1] or 0)
         if not price: continue
         c = buckets.setdefault(bucket, {"time": bucket, "open": price, "high": price, "low": price, "close": price, "volume": 0})

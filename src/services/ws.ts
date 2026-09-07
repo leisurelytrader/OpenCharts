@@ -1,3 +1,5 @@
+import { API_BASE } from "./api.ts";
+
 export type ConnectionState = "connected" | "connecting" | "reconnecting" | "disconnected";
 export type WsHandler = (event: unknown) => void;
 
@@ -12,10 +14,17 @@ class ShioajiSseClient {
   connect(_token?: string) {
     if (this.source) return;
     this.setState("connecting");
-    this.source = new EventSource("/api/market/stream");
+    this.source = new EventSource(`${API_BASE}/api/market/stream`);
     this.source.addEventListener("tick", (ev) => {
-      const raw = JSON.parse((ev as MessageEvent).data);
+      let raw: Record<string, unknown>;
+      try {
+        raw = JSON.parse((ev as MessageEvent).data) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (typeof raw.symbol !== "string") return;
       const close = Number(raw.close || 0);
+      if (!Number.isFinite(close) || close <= 0) return;
       const bid = Number(raw.bid_price || close);
       const ask = Number(raw.ask_price || close);
       const occurredAt = typeof raw.occurredAt === "string" ? Date.parse(raw.occurredAt) : Date.now();

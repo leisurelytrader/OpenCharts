@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { TradingPage } from "./pages/TradingPage.tsx";
+import { LoginPage } from "./pages/LoginPage.tsx";
 import { useAuthStore, useTradingStore } from "./services/store.tsx";
+import { API_BASE } from "./services/api.ts";
 
 /**
  * OpenCharts entry point.
@@ -11,21 +13,20 @@ import { useAuthStore, useTradingStore } from "./services/store.tsx";
  */
 export function App() {
   const [ready, setReady] = useState(false);
-  const demoLogin = useAuthStore((s) => s.demoLogin);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const isDemo = useAuthStore((s) => s.isDemo);
+  const restoreSession = useAuthStore((s) => s.restoreSession);
   const loadSymbols = useTradingStore((s) => s.loadSymbols);
   const loadAccounts = useTradingStore((s) => s.loadAccounts);
 
   useEffect(() => {
     let cancelled = false;
     async function boot() {
-      await demoLogin();
-      // OpenCharts paper trades genuinely execute against the in-browser engine,
-      // so this is a real (non-demo) session — clears the "trading disabled" gate.
-      localStorage.setItem("is_demo", "false");
-      useAuthStore.setState({ isDemo: false });
+      await restoreSession();
+      if (!useAuthStore.getState().accessToken) return;
       await Promise.all([loadSymbols(), loadAccounts()]);
       const code = localStorage.getItem("shioaji_symbol") || "TXFR1";
-      fetch("/api/market/subscribe", {
+      fetch(`${API_BASE}/api/market/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, security_type: "FUT", quote_type: "tick" }),
@@ -36,7 +37,9 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [demoLogin, loadSymbols, loadAccounts]);
+  }, [restoreSession, loadSymbols, loadAccounts, accessToken]);
+
+  if (!accessToken || isDemo) return <LoginPage />;
 
   if (!ready) {
     return (

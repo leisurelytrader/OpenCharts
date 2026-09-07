@@ -20,7 +20,10 @@ const account = (id = "shioaji-simulation") => ({ id, userId: user.id, templateI
 
 const remoteApi = {
   async demoLogin() { return { accessToken: "local-shioaji", refreshToken: "local-shioaji", user }; },
-  async login() { return { accessToken: "local-shioaji", refreshToken: "local-shioaji", user }; },
+  async login() {
+    await request<{ authenticated: boolean; simulation: boolean; accounts: unknown[] }>("/api/auth/login", { method: "POST" });
+    return { accessToken: "sinopac-api-session", refreshToken: "sinopac-api-session", user: { ...user, email: "sinopac-api" } };
+  },
   async logout() { return { success: true }; },
   async refreshToken() { return { accessToken: "local-shioaji", refreshToken: "local-shioaji" }; },
   async getMyProfile() { return user; },

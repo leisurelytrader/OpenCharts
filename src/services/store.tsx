@@ -16,7 +16,7 @@ interface AuthState {
   user: User | null;
   isDemo: boolean;
   mfaPending: { mfaToken: string; userId: string } | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: () => Promise<void>;
   googleLogin: (credential: string, firmSlug: string) => Promise<void>;
   demoLogin: () => Promise<void>;
   completeMfa: (code: string) => Promise<void>;
@@ -32,8 +32,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isDemo: localStorage.getItem("is_demo") === "true",
   mfaPending: null,
 
-  login: async (email, password) => {
-    const data = await api.login(email, password);
+  login: async () => {
+    const data = await api.login();
     // Check if MFA is required
     if ("mfaRequired" in data && data.mfaRequired) {
       const mfaData = data as unknown as LoginMfaResponse;
@@ -139,6 +139,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   restoreSession: async () => {
     const token = localStorage.getItem("access_token");
     if (!token) return;
+    // The gateway session token is only a browser marker; the real Shioaji
+    // authentication lives server-side and must be checked again on reload.
+    if (token === "sinopac-api-session") {
+      try {
+        await get().login();
+      } catch {
+        get().logout();
+      }
+      return;
+    }
     const rt = localStorage.getItem("refresh_token");
     // If the token is expired or within 5 minutes of expiry, refresh immediately
     // rather than waiting for the scheduler (which floors at 60s and won't help
